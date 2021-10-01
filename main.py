@@ -177,7 +177,7 @@ class ZenCommandRunner:
     outfile = (
       f"{build_dir}/{target['name']}"
       if target['type'] == "executable" else
-      f"{build_dir}/{target['name']}.{self.library_ext(target['static'])}"
+      f"{build_dir}/lib{target['name']}.{self.library_ext(target['static'])}"
     )
     proc = subprocess.run(
         [
