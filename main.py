@@ -121,6 +121,7 @@ class ZenCommandRunner:
     }
     """
     # Run all the targets in parallel
+    self.targets.reverse() # Order is important, so reverse it
     while len(self.targets) > 0:
       for i in range(opts["jobs"]):
         if len(self.targets) == 0:
@@ -129,7 +130,7 @@ class ZenCommandRunner:
       if opts["verbose"]:
         print(f"{len(self.targets)} targets remaining")
 
-  async def build_next_target(self, opts: dict):
+  async def build_next_target(self, _opts: dict):
     target = self.targets.pop()
 
     # Create build directory
@@ -140,7 +141,15 @@ class ZenCommandRunner:
       subprocess.run(["rm", "-rf", build_dir])
       os.makedirs(build_dir)
 
-    args = [self.compilers[target['language']], *target['flags']]
+    args = [
+      self.compilers[target['language']],
+      *target['flags'],
+      *(
+        [] 
+        if target['type'] != "library" else
+        ["-fPIC"]
+      )
+    ]
 
     i = 0
     for source in target['sources']:
@@ -153,18 +162,18 @@ class ZenCommandRunner:
           continue
 
       if target['style'] is None:
-        # <clear line> [<current source index>/<total source count>] Building <source>...
+        # [<current source index>/<total source count>] Building <source>...
         print(f"[{i}/{len(target['sources'])}] Building {source}...")
       else:
         if target['style'] == "ninja":
-          # <clear line> [<current source index>/<total source count>] Building <source>...
+          # [<current source index>/<total source count>] Building <source>...
           print(f"[{i}/{len(target['sources'])}] Building {source}...")
         elif target['style'] == "redis":
           # \t<compiler name>\t<source>
           print(f"{' ' * 4}{target['language']}{' ' * 4}{source}")
 
       proc = subprocess.run([*args, "-c", "-o", f"{build_dir}/{'_'.join(split_src)}.o",
-                             source], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                             source], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
       # If return code is not 0, raise with stderr
       if proc.returncode != 0:
@@ -179,19 +188,51 @@ class ZenCommandRunner:
       if target['type'] == "executable" else
       f"{build_dir}/lib{target['name']}.{self.library_ext(target['static'])}"
     )
-    proc = subprocess.run(
+    if target['style'] == None:
+      # [<current source index>/<total source count>] Building <source>...
+      print(f"[{len(target['sources'])}/{len(target['sources'])}] Linking {outfile}...")
+    else:
+      if target['style'] == "ninja":
+        # [<current source index>/<total source count>] Building <source>...
+        print(f"[{len(target['sources'])}/{len(target['sources'])}] Linking {outfile}...")
+      elif target['style'] == "redis":
+        # {4 space}<compiler name>{4 space}<source>
+        print(f"{' ' * 4}LINK{' ' * 4}{outfile}")
+    if target["type"] == "library" and target["static"]:
+      proc = subprocess.run(
+        [
+          "ar", "rcs",
+          outfile,
+          *[
+            f"{build_dir}/" +
+            "_".join(filter(lambda x: x != ".", source.split('/'))) + ".o"
+            for source in target['sources']
+          ]
+        ]
+      )
+    else:
+      proc = subprocess.run(
         [
             *args, "-o", outfile,
             *target['link_flags'],
+            *(
+              [] 
+              if (target['static'] and target['type'] == "library") 
+              else
+              ["-shared"]
+              if (target['type'] == "library")
+              else
+              []
+            ),
             *[
-                f"{build_dir}/" +
-                "_".join(filter(lambda x: x != ".", source.split('/'))) + ".o"
-                for source in target['sources']
+              f"{build_dir}/" +
+              "_".join(filter(lambda x: x != ".", source.split('/'))) + ".o"
+              for source in target['sources']
             ]
         ],
-        stdout=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
-    )
+      )
 
     # If return code is not 0, raise with stderr
     if proc.returncode != 0:
@@ -200,7 +241,7 @@ class ZenCommandRunner:
       sys.exit(1)
 
     for command in target["post_build_commands"]:
-      
+
       command = command.replace('{outfile}', outfile)
       command = command.replace('{build_dir}', build_dir)
       command = command.replace('{target_name}', target['name'])
@@ -312,6 +353,8 @@ class ZenBuildParser:
 
     if "extra_deps" in target:
       _extra_deps = target["extra_deps"]
+    else:
+      _extra_deps = []
 
     extra_deps = []
 
@@ -333,15 +376,18 @@ class ZenBuildParser:
       else:
         print("Invalid type in target in build.zen")
         return
-    
+
     if type == "library" and "static" not in target:
       static = True
-    else:
+    elif type == "library" and "static" in target:
       static = target["static"]
-      if not isinstance(static, bool):
+    else:
+      static = False
+    
+    if not isinstance(static, bool):
         print("Invalid static in target in build.zen")
         return
-    
+
     if "link_flags" not in target:
       link_flags = []
     else:
@@ -397,7 +443,7 @@ class ZenBuildParser:
       return files
     else:
       print("Invalid recurseable in build.zen")
-      return
+      return []
 
 shared_opts = {
   "verbose": False,
@@ -431,7 +477,7 @@ async def main():
     # Remove build directory
     if os.path.exists("build"):
       subprocess.run(["rm", "-rf", "build"])
-    
+
     # Create build directory again
     os.makedirs("build")
 
@@ -494,7 +540,7 @@ async def main():
     return
 
   await config.runner.run(shared_opts)
-  
+
 
 if __name__ == "__main__":
   shared_opts["async_loop"] = asyncio.get_event_loop()
