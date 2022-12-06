@@ -81,47 +81,100 @@ class Config:
         return self.vcfg[key]
 
     def solve_depedency_graph(self):
+        """
+        returns a tuple:
+        (passed_without_error, value if passed_without_error else errorString)
+        """
         targets = self["targets"]
-        compiled = []
+        graph = {}
 
-        # go through all the targets looking for the "depends_on" property and sort the targets
-        #
-        # if the targets don't have the property, just put it into the list arbitrarily unless
-        # other targets depend on it 
+        # first we need to build the graph
         for target in targets:
-            if "depends_on" in target:
-                target_depends = target["depends_on"]
-                if False or target_depends in compiled:
-                    pass
-                    # return (False, f"Target {target['name']} depends on {target_depends}, which i")
-                else:
-                    # find the target it depends on
-                    depends_on_target = None
-                    for t in targets:
-                        if t["name"] == target_depends:
-                            depends_on_target = t
-                            break
-                    
-                    if depends_on_target is None:
-                        return (False, f"Target {target['name']} depends on {target_depends}, which does not exist")
-                    
-                    if depends_on_target in compiled:
-                        # find the index of the target it depends on
-                        # and insert the current target after it
-                        index = compiled.index(depends_on_target)
-                        compiled.insert(index + 1, target)
-                    else:
-                        compiled.append(depends_on_target)
-                        compiled.append(target)
+            if target['name'] in graph:
+                graph[target['name']]["dependencies"] = target["dependencies"]
             else:
-                # check if it exists in compiled already, don't repeat targets
-                # otherwise, add it in
-                if target in compiled:
-                    continue
+                graph[target['name']] = {
+                    "dependencies": target['dependencies'],
+                    "dependents": [],
+                }
+            for dep in target['dependencies']:
+                if dep not in graph:
+                    graph[dep] = {
+                        "dependencies": [],
+                        "dependents": [target['name']],
+                    }
                 else:
-                    compiled.append(target)
+                    graph[dep]['dependents'].append(target['name'])
         
-        return (True, compiled)
+        # now we need to check for circular dependencies
+        # two basic rules:
+        # 1. a target cannot depend on itself
+        # 2. a target cannot depend on a target that depends on the original target
+        # let's do that now:
+        for target in graph:
+            if target in graph[target]["dependencies"]:
+                return False, f"Target `{target}` depends on itself, circular dependency"
+            for dep in graph[target]["dependencies"]:
+                if target in graph[dep]["dependencies"]:
+                    return False, f"Target `{target}` depends on a target that depends on it, circular dependency"
+
+        # now we need to solve the graph
+        # and return the order of the targets
+        # to build
+        # we can use a topological sort
+        # https://en.wikipedia.org/wiki/Topological_sorting
+
+        # first we need to find the nodes with no dependencies
+        # these are the nodes that we can start with
+        # we can then remove them from the graph
+        # and repeat the process until the graph is empty
+        # they'll be sorted in the order that they can be built
+        order = []
+
+        while len(graph) > 0:
+            # find the nodes with no dependencies
+            no_deps = []
+            for node in graph:
+                if len(graph[node]["dependencies"]) == 0:
+                    no_deps.append(node)
+            
+            # if there are no nodes with no dependencies
+            # then there is a circular dependency
+            if len(no_deps) == 0:
+                return False, "Circular dependency detected"
+
+            # remove the nodes with no dependencies from the graph
+            for node in no_deps:
+                for dep in graph[node]["dependents"]:
+                    graph[dep]["dependencies"].remove(node)
+                del graph[node]
+            
+            # add the nodes with no dependencies to the order
+            order.extend(no_deps)
+
+        result = []
+        for target in order:
+            # they expect target objects
+            # so we need to find the target object
+            # that matches the name
+            target_found = False
+            for t in targets:
+                if t['name'] == target:
+                    target_found = True
+                    result.append(t)
+                    break
+            
+            if not target_found:
+                # if we didn't find the target
+                # then something went wrong
+                # so we should raise an error
+                return False, f"Target `{target}` not found but was in the dependency graph"
+
+
+        return True, result
+            
+
+
 
 
     def find_compiler(self, lang):

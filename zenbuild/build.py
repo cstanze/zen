@@ -14,8 +14,10 @@ def libext():
         return ".so"
 
 def zprint(config, *args, **kwargs):
-    raw_only = False if "raw" not in kwargs else kwargs["raw"]
-    if config.raw_mode and not raw_only:
+    using_raw = "raw" in kwargs and kwargs["raw"] == True
+    if config.raw_mode and not using_raw:
+        return
+    elif not config.raw_mode and using_raw:
         return
 
     end = None if "end" not in kwargs else kwargs["end"]
@@ -248,6 +250,7 @@ def build(config):
     if not passed:
         print("Invalid config:")
         print(f"  {res}")
+        return
 
     # pprint.pprint(res)
     # return
@@ -284,7 +287,7 @@ def build(config):
             zprint(config, f"[0/0] No changes in {target['name']}")
             continue
 
-        i = 1
+        i = 0
         task_count = len(target["prebuild"]) + len(sources) + len(target["postbuild"])
 
         # run prebuild 

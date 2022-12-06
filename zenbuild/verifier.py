@@ -126,16 +126,18 @@ TARGET_SUBSCHEMA = {
     "schema": {
         "name": {"type": "string", "required": True},
         "language": {"type": "string", "required": True},
-        "depends_on": { "type": "string" },
+        "dependencies": { "type": "list", "schema": {"type": "string"}, "default": [] },
         # Not having `sources` or `watching`
         # required allows for some flexibility
         "sources": {
             "type": "list",
-            "schema": SOURCE_SUBSCHEMA
+            "schema": SOURCE_SUBSCHEMA,
+            "default": []
         },
         "watching": {
             "type": "list",
-            "schema": SOURCE_SUBSCHEMA
+            "schema": SOURCE_SUBSCHEMA,
+            "default": []
         },
         "flags": FLAG_SUBSCHEMA,
         "link_flags": {
