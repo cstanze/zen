@@ -13,6 +13,14 @@ def libext():
     else:
         return ".so"
 
+def zprint(config, *args, **kwargs):
+    raw_only = False if "raw" not in kwargs else kwargs["raw"]
+    if config.raw_mode and not raw_only:
+        return
+
+    end = None if "end" not in kwargs else kwargs["end"]
+    print(*args, end=end)
+
 def flatten_files(sect):
     """
     sect is the `sources` or `watching`
@@ -273,7 +281,7 @@ def build(config):
         
         config_changed = config.depchanged(os.path.join(config.config_dir, "build.zen"), extra=True)
         if not (any_dep_changed or config_changed):
-            print(f"[0/0] No changes in {target['name']}")
+            zprint(config, f"[0/0] No changes in {target['name']}")
             continue
 
         i = 1
@@ -281,7 +289,7 @@ def build(config):
 
         # run prebuild 
         for cmd in target["prebuild"]:
-            print(f"\r[{i}/{task_count}] Running prebuild for {target['name']}...", end="")
+            zprint(config, f"\r[{i}/{task_count}] Running prebuild for {target['name']}...", end="")
             res = subprocess.call(
                 cmd
                     .replace("{build_dir}", f"build/{target['name']}/")
@@ -295,7 +303,7 @@ def build(config):
 
             i += 1
         if len(target["prebuild"]) > 0:
-            print()
+            zprint(config)
         
 
         # go through each source and build each object
@@ -306,9 +314,10 @@ def build(config):
             object = f"build/{target['name']}/{file.replace('.', '_').replace(os.path.sep, '_')}_{ext.replace('.', '')}.o"
             objects.append(object)
 
-            print(f"{' ' * last_len}", end="")
+            zprint(config, f"{' ' * last_len}", end="")
             last_len = len(f"[{i}/{task_count}] Building {file}{ext}")
-            print(
+            zprint(
+                config,
                 f"\r[{i}/{task_count}] Building {file}{ext}",
                 end=""
             )
@@ -322,32 +331,51 @@ def build(config):
                 source
             ], stderr=subprocess.PIPE)
 
+            zprint(
+                config,
+                f"{compiler} -c {' '.join(flags)} -o {object} {source}",
+                raw=True
+            )
+
             if proc.returncode != 0:
                 print()
                 print(proc.stderr.decode())
                 sys.exit(1)
 
             i += 1
-
-        print(f"\r[{i}/{task_count}] Linking target {target['name']}")
+        zprint(config, f"\r[{i}/{task_count}] Linking target {target['name']}")
 
         proc = None
+        outfile = (f"build/{target['name']}/{target['name']}"
+                        if target['type'] == "executable"
+                        else
+                        f"build/{target['name']}/lib{target['name']}{'.a' if target['static'] else libext()}")
         if target["type"] == "executable":
             proc = subprocess.run([
                 compiler,
                 *flags,
                 *link_flags,
                 "-o",
-                f"build/{target['name']}/{target['name']}",
+                outfile,
                 *objects
             ], stderr=subprocess.PIPE)
+            zprint(
+                config,
+                f"{compiler} {' '.join(flags)} {' '.join(link_flags)} -o {outfile} {' '.join(objects)}",
+                raw=True
+            )
         elif target["type"] == "library":
             if target["static"]:
                 proc = subprocess.run([
                     "ar", "rcs",
-                    f"build/{target['name']}/lib{target['name']}.a",
+                    outfile,
                     *objects
                 ], stderr=subprocess.PIPE)
+                zprint(
+                    config,
+                    f"ar rcs {outfile} {' '.join(objects)}",
+                    raw=True
+                )
             else:
                 proc = subprocess.run([
                     compiler,
@@ -355,9 +383,14 @@ def build(config):
                     *link_flags,
                     "-shared",
                     "-o",
-                    f"build/{target['name']}/lib{target['name']}{libext()}",
+                    outfile,
                     *objects,
                 ], stderr=subprocess.PIPE)
+                zprint(
+                    config,
+                    f"{compiler} {' '.join(flags)} {' '.join(link_flags)} -shared -o {outfile} {' '.join(objects)}",
+                    raw=True
+                )
 
         if proc.returncode != 0:
             print()
@@ -366,17 +399,12 @@ def build(config):
 
         # run postbuild 
         for cmd in target["postbuild"]:
-            print(f"\r[{i}/{task_count}] Running postbuild on {target['name']}...", end="")
+            zprint(config, f"\r[{i}/{task_count}] Running postbuild on {target['name']}...", end="")
             res = subprocess.call(
                 cmd
                     .replace("{build_dir}", f"build/{target['name']}/")
                     .replace("{target_name}", target["name"])
-                    .replace("{outfile}",
-                        f"build/{target['name']}/{target['name']}"
-                        if target['type'] == "executable"
-                        else
-                        f"build/{target['name']}/lib{target['name']}{'.a' if target['static'] else libext()}"
-                    ),
+                    .replace("{outfile}", outfile),
                 shell=True
             )
             
@@ -385,7 +413,7 @@ def build(config):
             
             i += 1
         if len(target["postbuild"]) > 0:
-            print()
+            zprint(config)
 
     
     config.cache_deptimes()

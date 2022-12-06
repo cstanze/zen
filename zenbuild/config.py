@@ -22,6 +22,7 @@ class Config:
         # print("Loading config")
         self.verbose = args.verbose
         self.config_dir = args.config_dir
+        self.raw_mode = args.raw
 
         # Get the config from the directory
         with open(os.path.join(self.config_dir, "build.zen"), "r") as f:

@@ -26,6 +26,8 @@ parser.add_argument("-v", "--verbose", action="store_true",
                     help="Enable verbose output")
 parser.add_argument("-c", "--config-dir", default=".",
                     help="The config directory")
+parser.add_argument("-r", "--raw", action="store_true",
+                    help="Print the raw command output (useful for compiledb or similar tools)")
 # parser.add_argument("-t", "--target", default="all", help="The target to build")
 # parser.add_argument("-p", "--profile", default="default", help="The profile to use")
 
