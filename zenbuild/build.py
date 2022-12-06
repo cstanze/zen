@@ -35,9 +35,31 @@ def flatten_files(sect):
         elif isinstance(file, dict):
             for root, _, path_files in os.walk(file["path"]):
                 for found in path_files:
-                    if re.match(file["regex"], found):
-                        files.append((root + os.path.sep + found))
+                    if re.search(file["regex"], found, flags=re.M):
+                        files.append(os.path.join(root, found))
     return files
+
+
+def flatten_compile_flags(flags, config, global_flags, target_name):
+    did_inherit = False if global_flags is not None else True
+    out = []
+    for flag in flags:
+        if flag == "inherit":
+            if did_inherit:
+                return False, f"Already inherited flags in target: {target_name}"
+            did_inherit = True
+            passed, res = flatten_compile_flags(global_flags, config, None, target_name)
+            if passed:
+                out.extend(res)
+            else:
+                return False, res
+        elif isinstance(flag, dict):
+            if flag["kind"] == "include_dir":
+                out.append(config["include_pattern"].replace("{}", flag["value"]))
+        else:
+            out.append(flag)
+    return True, out
+    
 
 def flatten_flags(config, target):
     """
@@ -53,18 +75,11 @@ def flatten_flags(config, target):
     did_inherit = False
     compiler_config = config.get_compiler_config(target["language"])
     if "flags" in target:
-        for flag in target["flags"]:
-            if flag == "inherit":
-                if did_inherit:
-                    errs.append(f"Already inherited flags in target: {target['name']}")
-                    continue
-                did_inherit = True
-                flags.extend(config["global"]["flags"])
-            elif isinstance(flag, dict):
-                if flag["kind"] == "include_dir":
-                    flags.append(compiler_config["include_pattern"].replace("{}", flag["value"]))
-            else:
-                flags.append(flag)
+        passed, res = flatten_compile_flags(target["flags"], compiler_config, config["global"]["flags"], target["name"])
+        if passed:
+            flags.extend(res)
+        else:
+            errs.extend(res)
 
     if "link_flags" in target:
         for flag in target["link_flags"]:
@@ -139,7 +154,8 @@ def artifacts(config):
         [some_compiler_artifact, another_compiler_artifact]
     )
     """
-    target_names = [target["name"] for target in config["targets"]]  
+    targets = list(filter(lambda t: t["type"] != "shell", config["targets"]))
+    target_names = [target["name"] for target in targets]  
 
     cc_files = []
     for target in config["targets"]:
@@ -182,6 +198,7 @@ def config_sanity(config, skip_creation=False):
 
         if "language" not in target:
             errs.append(f"Non-shell target ({target['name']}) requires a language identifier")
+            continue
 
         sources = flatten_files(target["sources"])
         watching = flatten_files(target["watching"])
@@ -303,20 +320,25 @@ def build(config):
         any_dep_changed = False
         for dep in sources:
             obj = config.as_object(target, dep)
+            # print("checking depchanged on the following:", dep, obj)
             if config.depchanged(dep, obj):
                 any_dep_changed = True
 
         for dep in watching:
-            # print("watching", dep)
+            # print("checking depchanged (extra) on", dep)
             if config.depchanged(dep, extra=True):
-                # print("matched")
                 any_dep_changed = True
-
         
         config_changed = config.depchanged(os.path.join(config.config_dir, "build.zen"), extra=True)
+        sources_empty = not len(sources)> 0
         if not (any_dep_changed or config_changed):
-            zprint(config, f"[0/0] No changes in {target['name']}")
-            continue
+            if not sources_empty:
+                zprint(config, f"[0/0] No changes in {target['name']}", raw=config.raw_mode)
+                continue
+            else:
+                zprint(config, f"[0/0] No sources in {target['name']}", raw=config.raw_mode)
+                continue
+
 
         i = 0
         task_count = len(target["prebuild"]) + len(sources) + len(target["postbuild"])
@@ -348,14 +370,23 @@ def build(config):
             object = f"build/{target['name']}/{file.replace('.', '_').replace(os.path.sep, '_')}_{ext.replace('.', '')}.o"
             objects.append(object)
 
-            zprint(config, f"{' ' * last_len}", end="")
-            last_len = len(f"[{i}/{task_count}] Building {file}{ext}")
+            zprint(config, f"\r{' ' * last_len}", end="")
+            clen = len(f"[{i}/{task_count}] Building {file}{ext}")
+            last_len = clen if clen > last_len else last_len
             zprint(
                 config,
                 f"\r[{i}/{task_count}] Building {file}{ext}",
                 end=""
             )
-            
+
+            # print(flags)
+
+            zprint(
+                config,
+                f"{compiler} -c {' '.join(flags)} -o {object} {source}",
+                raw=True
+            )
+
             proc = subprocess.run([
                 compiler,
                 "-c",
@@ -364,19 +395,14 @@ def build(config):
                 object,
                 source
             ], stderr=subprocess.PIPE)
-
-            zprint(
-                config,
-                f"{compiler} -c {' '.join(flags)} -o {object} {source}",
-                raw=True
-            )
-
+   
             if proc.returncode != 0:
                 print()
                 print(proc.stderr.decode())
                 sys.exit(1)
 
             i += 1
+        zprint(config, f"\r{' ' * last_len}", end="")
         zprint(config, f"\r[{i}/{task_count}] Linking target {target['name']}")
 
         proc = None
