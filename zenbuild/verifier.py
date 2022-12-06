@@ -143,18 +143,20 @@ TARGET_SUBSCHEMA = {
             "schema": LINK_FLAG_SUBSCHEMA
         },
         "type": {"type": "string", "allowed": ["library", "executable"], "default": "executable"},
-        "static": {"type": "boolean"},
+        "static": {"type": "boolean", "default": False},
         "defines": {
             "type": "list",
             "schema": DEFINE_SUBSCHEMA
         },
         "prebuild": {
             "type": "list",
-            "schema": {"type": "string"}
+            "schema": {"type": "string"},
+            "default": []
         },
         "postbuild": {
             "type": "list",
-            "schema": {"type": "string"}
+            "schema": {"type": "string"},
+            "default": []
         }
     }
 }
@@ -217,8 +219,11 @@ class ZenErrors:
             return "Unknown Field"
         elif "must be of" in s:
             return f"Expected '{s[11:-5]}' type"
+        elif "unallowed value " in s:
+            return f"Value `{s[16:]}` not allowed"
         else:
-            raise Exception("Unknown Err String")
+            # raise Exception(f"Unknown Err String: {s}")
+            return f"Unknown err string: {s}"
 
 
 class ZenVerifier:

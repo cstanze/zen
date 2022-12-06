@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='zenbuild',
-      version='0.1',
+      version='0.2',
       description='Zen Build System',
       url='http://github.com/cstanze/zen',
       author='Jules Nieves',

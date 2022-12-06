@@ -40,7 +40,6 @@ def flatten_flags(config, target):
     flags = []
     link_flags = []
     errs = []
-    global_flags = config["global"]["flags"]
     did_inherit = False
     compiler_config = config.get_compiler_config(target["language"])
     if "flags" in target:
@@ -50,7 +49,7 @@ def flatten_flags(config, target):
                     errs.append(f"Already inherited flags in target: {target['name']}")
                     continue
                 did_inherit = True
-                flags.extend(global_flags)
+                flags.extend(config["global"]["flags"])
             elif isinstance(flag, dict):
                 if flag["kind"] == "include_dir":
                     flags.append(compiler_config["include_pattern"].replace("{}", flag["value"]))
@@ -271,13 +270,36 @@ def build(config):
                 # print("matched")
                 any_dep_changed = True
 
-        if not any_dep_changed:
+        
+        config_changed = config.depchanged(os.path.join(config.config_dir, "build.zen"), extra=True)
+        if not (any_dep_changed or config_changed):
             print(f"[0/0] No changes in {target['name']}")
             continue
 
+        i = 1
+        task_count = len(target["prebuild"]) + len(sources) + len(target["postbuild"])
+
+        # run prebuild 
+        for cmd in target["prebuild"]:
+            print(f"\r[{i}/{task_count}] Running prebuild for {target['name']}...", end="")
+            res = subprocess.call(
+                cmd
+                    .replace("{build_dir}", f"build/{target['name']}/")
+                    .replace("{target_name}", target["name"]),
+                shell=True,
+            )
+
+            if res != 0:
+                print()
+                break
+
+            i += 1
+        if len(target["prebuild"]) > 0:
+            print()
+        
+
         # go through each source and build each object
         objects = []
-        i = 0
         last_len = 0
         for source in sources:
             file, ext = os.path.splitext(source) 
@@ -285,9 +307,9 @@ def build(config):
             objects.append(object)
 
             print(f"{' ' * last_len}", end="")
-            last_len = len(f"\r[{i + 1}/{len(sources)}] Building {file}{ext}")
+            last_len = len(f"[{i}/{task_count}] Building {file}{ext}")
             print(
-                f"\r[{i + 1}/{len(sources)}] Building {file}{ext}",
+                f"\r[{i}/{task_count}] Building {file}{ext}",
                 end=""
             )
             
@@ -298,33 +320,34 @@ def build(config):
                 "-o",
                 object,
                 source
-            ])
+            ], stderr=subprocess.PIPE)
 
             if proc.returncode != 0:
                 print()
+                print(proc.stderr.decode())
                 sys.exit(1)
 
             i += 1
 
-        print(f"\r[{len(sources)}/{len(sources)}] Linking target {target['name']}")
+        print(f"\r[{i}/{task_count}] Linking target {target['name']}")
 
+        proc = None
         if target["type"] == "executable":
-            subprocess.run([
+            proc = subprocess.run([
                 compiler,
                 *flags,
                 *link_flags,
                 "-o",
                 f"build/{target['name']}/{target['name']}",
                 *objects
-            ])
+            ], stderr=subprocess.PIPE)
         elif target["type"] == "library":
-            proc = None
-            if "static" in target and target["static"]:
+            if target["static"]:
                 proc = subprocess.run([
                     "ar", "rcs",
                     f"build/{target['name']}/lib{target['name']}.a",
                     *objects
-                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                ], stderr=subprocess.PIPE)
             else:
                 proc = subprocess.run([
                     compiler,
@@ -334,11 +357,36 @@ def build(config):
                     "-o",
                     f"build/{target['name']}/lib{target['name']}{libext()}",
                     *objects,
-                ])
+                ], stderr=subprocess.PIPE)
 
-            if proc.returncode != 0:
-                print()
-                sys.exit(1)
+        if proc.returncode != 0:
+            print()
+            print(proc.stderr.decode())
+            sys.exit(1)
+
+        # run postbuild 
+        for cmd in target["postbuild"]:
+            print(f"\r[{i}/{task_count}] Running postbuild on {target['name']}...", end="")
+            res = subprocess.call(
+                cmd
+                    .replace("{build_dir}", f"build/{target['name']}/")
+                    .replace("{target_name}", target["name"])
+                    .replace("{outfile}",
+                        f"build/{target['name']}/{target['name']}"
+                        if target['type'] == "executable"
+                        else
+                        f"build/{target['name']}/lib{target['name']}{'.a' if target['static'] else libext()}"
+                    ),
+                shell=True
+            )
+            
+            if res != 0:
+                break
+            
+            i += 1
+        if len(target["postbuild"]) > 0:
+            print()
+
     
     config.cache_deptimes()
 

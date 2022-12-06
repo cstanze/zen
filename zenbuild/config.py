@@ -1,5 +1,6 @@
 import shutil
 import os
+import sys
 import yaml
 from .provider import LANGUAGE_DEFAULTS, COMPILER_DEFAULTS
 
@@ -50,7 +51,8 @@ class Config:
                         print(f"Zen Config - `{field}`: {err['error']}")
 
             print_errs(errs)
-            raise Exception()
+            sys.exit(1)
+            # raise Exception()
             #print("Invalid config:")
             #print(f"{doc}")
 
