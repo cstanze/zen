@@ -177,6 +177,12 @@ def config_sanity(config, skip_creation=False):
     """
     errs = []
     for target in config["targets"]:
+        if target["type"] == "shell":
+            continue
+
+        if "language" not in target:
+            errs.append(f"Non-shell target ({target['name']}) requires a language identifier")
+
         sources = flatten_files(target["sources"])
         watching = flatten_files(target["watching"])
         passed, res = flatten_flags(config, target)
@@ -256,6 +262,31 @@ def build(config):
     # return
 
     for target in res:
+        if target["type"] == "shell":
+            # Shell targets only run prebuild commands
+
+            i = 0
+            task_count = len(target["prebuild"])
+
+            # run prebuild 
+            for cmd in target["prebuild"]:
+                zprint(config, f"\r[{i}/{task_count}] Running prebuild for shell {target['name']}...", end="")
+                res = subprocess.call(
+                    cmd,
+                    shell=True,
+                )
+
+                if res != 0:
+                    print()
+                    break
+
+                i += 1
+            if len(target["prebuild"]) > 0:
+                zprint(config)
+
+            continue
+
+
         sources = flatten_files(target["sources"])
         watching = flatten_files(target["watching"])
         _, res = flatten_flags(config, target)

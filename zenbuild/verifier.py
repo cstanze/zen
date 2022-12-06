@@ -125,7 +125,7 @@ TARGET_SUBSCHEMA = {
     "type": "dict",
     "schema": {
         "name": {"type": "string", "required": True},
-        "language": {"type": "string", "required": True},
+        "language": {"type": "string", "required": False},
         "dependencies": { "type": "list", "schema": {"type": "string"}, "default": [] },
         # Not having `sources` or `watching`
         # required allows for some flexibility
@@ -144,7 +144,7 @@ TARGET_SUBSCHEMA = {
             "type": "list",
             "schema": LINK_FLAG_SUBSCHEMA
         },
-        "type": {"type": "string", "allowed": ["library", "executable"], "default": "executable"},
+        "type": {"type": "string", "allowed": ["library", "executable", "shell"], "default": "executable"},
         "static": {"type": "boolean", "default": False},
         "defines": {
             "type": "list",
