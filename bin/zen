@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+
+from sys import version_info
+import os.path as path
+import sys
+import zenbuild
+import argparse
+import yaml
+
+parser = argparse.ArgumentParser(
+    description="Zen Build - A minimal build system for small projects",
+    epilog="Copyright (c) 2022, Jules")
+subparsers = parser.add_subparsers(
+    help="Sub-commands",
+    dest="subcommand"
+)
+
+init_parser = subparsers.add_parser("init", help="Initialize a new project")
+init_parser.add_argument("-r", "--recursive", action="store_true",
+                         help="Recursively overwrites the build.zen file even if one already exists")
+
+subparsers.add_parser("clean", help="Clean the build directory")
+
+# parser.add_argument("-j", "--jobs", type=int, default=1, help="Number of jobs to run in parallel")
+parser.add_argument("-v", "--verbose", action="store_true",
+                    help="Enable verbose output")
+parser.add_argument("-c", "--config-dir", default=".",
+                    help="The config directory")
+# parser.add_argument("-t", "--target", default="all", help="The target to build")
+# parser.add_argument("-p", "--profile", default="default", help="The profile to use")
+
+args = parser.parse_args()
+
+# if (version_info.major, version_info.minor) < (3, 7):
+    # print("Warning: Zen build targets may not be ordered correctly with your version of Python. Please upgrade to Python 3.7 or later.")
+
+if args.subcommand == "init":
+    if path.exists(path.join(args.config_dir, "build.zen")) and not args.recursive:
+        print("A build.zen file already exists in this directory. Please remove it before initializing a new project.")
+        exit(1)
+
+    name = input("Project name: ")
+
+    with open("build.zen", "w") as f:
+        yaml.dump({
+            "project": {
+                "name": name,
+                "version": "0.1.0",
+                "languages": [ "CC" ]
+            },
+            "targets": []
+        }, f)
+
+if not path.exists(path.join(args.config_dir, "build.zen")):
+    print("Error: Zen build file not found. Run `zen init` to create a new build file.")
+    exit(1)
+
+try:
+    config = zenbuild.Config(args)
+except Exception as e:
+    import pprint
+    pprint.pprint(e)
+    exit(1)
+
+if args.subcommand == "clean":
+    zenbuild.clean(config)
+    sys.exit(0)
+
+zenbuild.build(config)

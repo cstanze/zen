@@ -1,5 +1,8 @@
-*
-!main.py
-!requirements.txt
-!.gitignore
-!README.md
+/main_old.py
+/testdir
+/build
+/.vscode
+/dist
+/zenbuild.egg-info
+
+
