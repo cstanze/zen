@@ -63,22 +63,24 @@ OVERRIDE_SCHEMA = {
 }
 
 _DEFINE_VALUE_SUBSCHEMA_BASE = {
-    "symbol": {"type": "string", "required": True}
+    "symbol": {"type": "string", "required": True},
+    "as_type": {"type": "string", "allowed": ["int", "string", "bool"]}
 }
 
 DEFINE_VALUE_SUBSCHEMAS = [
     {
         **_DEFINE_VALUE_SUBSCHEMA_BASE,
         "value": {"type": ["string", "number", "boolean"], "required": True},
-        "as_type": {"type": "string", "allowed": ["int", "string", "bool"]}
     },
     {
         **_DEFINE_VALUE_SUBSCHEMA_BASE,
         "command": {"type": "string", "required": True},
         "strip_whitespace": {"type": "boolean", "default": False},
         "ignore_fail": {"type": "boolean", "default": True},
-        "use_stderr": {"type": "string", "allowed": ["yes", "fail", "no"], "default": "no"}
-    }
+        "use_stderr": {"type": "string", "allowed": ["yes", "fail", "no"], "default": "no"},
+        "default": {"type": "string"}
+    },
+    { "inherit": {"type": "boolean", "required": True} }
 ]
 
 DEFINE_SUBSCHEMA = {
@@ -94,14 +96,16 @@ FLAG_SUBSCHEMA = {
             "kind": { "type": "string", "required": True, "allowed": ["include_dir"] },
             "value": { "type": "string", "required": True }
         }
-    }
+    },
+    "default": []
 }
 
 GLOBAL_SCHEMA = {
     "flags": FLAG_SUBSCHEMA,
     "defines": {
         "type": "list",
-        "schema": DEFINE_SUBSCHEMA
+        "schema": DEFINE_SUBSCHEMA,
+        "default": []
     }
 }
 
@@ -198,7 +202,11 @@ PROJECT_SCHEMA = {
     },
     "global": {
         "type": "dict",
-        "schema": GLOBAL_SCHEMA
+        "schema": GLOBAL_SCHEMA,
+        "default": {
+            "flags": [],
+            "defines": []
+        }
     },
     "targets": {
         "type": "list",
@@ -247,6 +255,7 @@ class ZenVerifier:
 
     def classify_errors(self, errors, parent=None):
         classified = []
+        print(errors)
         for key in errors:
             val = errors[key]
             # it is always a list from what I've seen

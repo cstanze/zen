@@ -1,9 +1,8 @@
-from cerberus.platform import sys
 from .provider import LANGUAGE_DEFAULTS
 from .config import Config
+import sys
 import os
 import re
-import pprint
 import subprocess
 
 def libext():
@@ -59,7 +58,60 @@ def flatten_compile_flags(flags, config, global_flags, target_name):
         else:
             out.append(flag)
     return True, out
-    
+def flatten_defines(defs, config, global_defs, target_name):
+    did_inherit = False if global_defs is not None else True
+    out = []
+    for define in defs:
+        if "inherit" in define:
+            if did_inherit:
+                return False, f"Already inherited defines in target: {target_name}"
+            did_inherit = True
+            passed, res = flatten_defines(global_defs, config, None, target_name)
+            if passed:
+                out.extend(res)
+            else:
+                return False, res
+            continue
+        symbol = define["symbol"]
+        if "value" in define:
+            value = define["value"]
+            if "as_type" in define:
+                if define["as_type"] == "int":
+                    value = f"((int){value})"
+                elif define["as_type"] == "string":
+                    value = f"\"{value}\""
+                elif define["as_type"] == "bool":
+                    value = "true" if bool(value) else "false"
+            out.append(
+                config["define_pattern"]
+                    .replace("{}", symbol)
+                    .replace("{*}", value)
+            )
+        elif "command" in define:
+            res = subprocess.run(define["command"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            if res.returncode != 0 and not define["ignore_fail"]:
+                return False, f"Failed to run command for define rule ({symbol})"
+            value = define["default"] if "default" in define else ""
+            use_stderr = define["use_stderr"] if "use_stderr" in define else "no"
+            if use_stderr == "fail" and res.returncode != 0 or use_stderr == "yes":
+                value = res.stderr.decode()
+            else:
+                value = res.stdout.decode()
+            value = value.strip() if define["strip_whitespace"] else value
+            if "as_type" in define:
+                if define["as_type"] == "int":
+                    value = f"((int){value})"
+                elif define["as_type"] == "string":
+                    value = f"\"{value}\""
+                elif define["as_type"] == "bool":
+                    value = "true" if bool(value) else "false"
+            out.append(
+                config["define_pattern"]
+                    .replace("{}", symbol)
+                    .replace("{*}", value)
+            )
+    # print(out)
+    return True, out
 
 def flatten_flags(config, target):
     """
@@ -72,14 +124,16 @@ def flatten_flags(config, target):
     flags = []
     link_flags = []
     errs = []
-    did_inherit = False
     compiler_config = config.get_compiler_config(target["language"])
     if "flags" in target:
-        passed, res = flatten_compile_flags(target["flags"], compiler_config, config["global"]["flags"], target["name"])
+        gf = [] if "global" not in config.vcfg else []
+        gf = [] if "flags" not in config["global"] else config["global"]["flags"]
+
+        passed, res = flatten_compile_flags(target["flags"], compiler_config, gf, target["name"])
         if passed:
             flags.extend(res)
         else:
-            errs.extend(res)
+            errs.append(res)
 
     if "link_flags" in target:
         for flag in target["link_flags"]:
@@ -95,44 +149,13 @@ def flatten_flags(config, target):
                 link_flags.append(flag)
 
     if "defines" in target:
-        for define in target["defines"]:
-            symbol = define["symbol"]
-            if "value" in define:
-                value = define["value"]
-                if "as_type" in define:
-                    if define["as_type"] == "int":
-                        try:
-                            value = int(define["value"])
-                        except:
-                            errs.append(f"Failed to cast define symbol ({symbol}) value to `int`")
-                            continue
-                    elif define["as_type"] == "string":
-                        value = str(define["value"])
-                    elif define["as_type"] == "bool":
-                        value = bool(define["value"])
-                flags.append(
-                    compiler_config["define_pattern"]
-                        .replace("{}", symbol)
-                        .replace("{*}", value)
-                )
-            elif "command" in define:
-                res = subprocess.run(define["command"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                if res.returncode != 0 and not define["ignore_fail"]:
-                    errs.append(f"Failed to run command for define rule ({symbol})")
-                    continue
-                value = ""
-                if define["use_stderr"] == "fail" and res.returncode != 0 or define["use_stderr"] == "yes":
-                    value = res.stderr.decode()
-                else:
-                    value = res.stdout.decode()
-                flags.append(
-                    compiler_config["define_pattern"]
-                        .replace("{}", symbol)
-                        .replace("{*}", value.strip() if define["strip_whitespace"] else value)
-                )
-            else:
-                errs.append("Unknown define rule")
-                continue
+        gd = [] if "global" not in config.vcfg else []
+        gd = [] if "defines" not in config["global"] else config["global"]["defines"]
+        passed, res = flatten_defines(target["defines"], compiler_config, gd, target["name"])
+        if passed:
+            flags.extend(res)
+        else:
+            errs.append(res)
 
     if len(errs) > 0:
         return (False, errs)

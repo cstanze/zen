@@ -105,7 +105,7 @@ class Config:
                     }
                 else:
                     graph[dep]['dependents'].append(target['name'])
-        
+
         # now we need to check for circular dependencies
         # two basic rules:
         # 1. a target cannot depend on itself
@@ -172,10 +172,6 @@ class Config:
 
 
         return True, result
-            
-
-
-
 
     def find_compiler(self, lang):
         """
